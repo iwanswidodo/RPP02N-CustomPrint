@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 12
-                  versionName '2.1'
+                  versionCode 13
+                  versionName '2.2'
               }
           }
           EOF
@@ -237,7 +237,7 @@ jobs:
                       item.put("order", value(orderNo).isEmpty() ? "(Tanpa nomor)" : value(orderNo));
                       item.put("customer", value(customer).isEmpty() ? "-" : value(customer));
                       item.put("total", value(total));
-                      item.put("payload", receipt + "\\n\\n\\n");
+                      item.put("payload", receipt + "\n\n\n");
                       return item.toString();
                   } catch (Exception e) { return null; }
               }
@@ -259,12 +259,12 @@ jobs:
                       String[] labels=new String[history.length()];
                       for(int i=0;i<history.length();i++){
                           JSONObject item=history.getJSONObject(i);
-                          labels[i]=item.optString("order")+" • Rp "+item.optString("total")+"\\n"+item.optString("customer")+" • "+item.optString("time");
+                          labels[i]=item.optString("order")+" • Rp "+item.optString("total")+"\n"+item.optString("customer")+" • "+item.optString("time");
                       }
                       new AlertDialog.Builder(this).setTitle("Riwayat Cetak ("+history.length()+")").setItems(labels,(d,which)->{
                           try {
                               JSONObject item=history.getJSONObject(which);
-                              String detail="Pesanan: "+item.optString("order")+"\\nPelanggan: "+item.optString("customer")+
+                              String detail="Pesanan: "+item.optString("order")+"\nPelanggan: "+item.optString("customer")+
                                   "\\nTotal: Rp "+item.optString("total")+"\\nWaktu: "+item.optString("time");
                               new AlertDialog.Builder(this).setTitle("Detail Struk").setMessage(detail)
                                   .setPositiveButton("CETAK ULANG",(x,y)->send(item.optString("payload"),false,null))
@@ -347,5 +347,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v2.1
+          name: RPP02N-CustomPrint-APK-v2.2
           path: app/build/outputs/apk/debug/*.apk
