@@ -39,16 +39,17 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 7
-                  versionName '1.6'
+                  versionCode 8
+                  versionName '1.7'
               }
           }
           EOF
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-permission android:name="android.permission.BLUETOOTH"/>
-              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+              <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
               <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
               <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="RPP02N Custom Print">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
@@ -86,7 +87,7 @@ jobs:
                   adapter = BluetoothAdapter.getDefaultAdapter();
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(1); box.setPadding(24,24,24,24);
-                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.6"); title.setTextSize(22); box.addView(title);
+                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.7"); title.setTextSize(22); box.addView(title);
                   status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
                   printers = new Spinner(this); box.addView(printers);
@@ -110,15 +111,25 @@ jobs:
                       text.clearFocus();
                       send(value + "\n\n");
                   });
-                  if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                      requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 10);
-                  else loadPrinters();
+                  if (Build.VERSION.SDK_INT >= 31) {
+                      ArrayList<String> missing = new ArrayList<>();
+                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                          missing.add(Manifest.permission.BLUETOOTH_CONNECT);
+                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+                          missing.add(Manifest.permission.BLUETOOTH_SCAN);
+                      if (!missing.isEmpty()) requestPermissions(missing.toArray(new String[0]), 10);
+                      else loadPrinters();
+                  } else loadPrinters();
               }
 
               public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-                  if (requestCode == 10 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) loadPrinters();
-                  else status.setText("Izin Bluetooth diperlukan untuk koneksi printer");
+                  if (requestCode == 10 && grantResults.length > 0) {
+                      boolean allGranted = true;
+                      for (int result : grantResults) if (result != PackageManager.PERMISSION_GRANTED) allGranted = false;
+                      if (allGranted) loadPrinters();
+                      else status.setText("Izin Bluetooth CONNECT dan SCAN diperlukan. Aktifkan melalui Pengaturan Aplikasi.");
+                  }
               }
 
               void loadPrinters() {
@@ -148,7 +159,9 @@ jobs:
                   new Thread(() -> {
                       String result = null;
                       try {
-                          if (adapter != null) adapter.cancelDiscovery();
+                          if (adapter != null && Build.VERSION.SDK_INT >= 31 &&
+                              checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
+                              adapter.cancelDiscovery();
                           // Keep one SPP socket alive between jobs; this avoids rapid
                           // connect/close cycles that can leave the printer unavailable.
                           for (int attempt = 1; attempt <= 2; attempt++) {
@@ -220,5 +233,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.6
+          name: RPP02N-CustomPrint-APK-v1.7
           path: app/build/outputs/apk/debug/*.apk
