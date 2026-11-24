@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 9
-                  versionName '1.8'
+                  versionCode 10
+                  versionName '1.9'
               }
           }
           EOF
@@ -80,7 +80,9 @@ jobs:
               BluetoothAdapter adapter;
               ArrayList<BluetoothDevice> devices = new ArrayList<>();
               Spinner printers;
-              EditText orderNo, customer, items, total, payment, note;
+              EditText storeName, tagline, orderNo, customer, items, total, payment, note;
+              CheckBox showOrderNo, showDate, showCustomer, showPayment;
+              android.content.SharedPreferences prefs;
               TextView status, preview;
               BluetoothSocket activeSocket;
               volatile boolean printing = false;
@@ -94,11 +96,19 @@ jobs:
                   box.setOrientation(LinearLayout.VERTICAL); box.setPadding(24,20,24,24);
                   scroll.addView(box);
                   TextView title = new TextView(this);
-                  title.setText("PAK DE SURYA • CETAK STRUK v1.8");
+                  title.setText("PAK DE SURYA • CETAK STRUK v1.9");
                   title.setTextSize(21); title.setTypeface(null, Typeface.BOLD); box.addView(title);
                   TextView subtitle = new TextView(this);
                   subtitle.setText("Template struk khusus Mie Ayam Pak De Surya");
                   box.addView(subtitle);
+                  prefs = getSharedPreferences("receipt_editor", MODE_PRIVATE);
+                  addLabel(box, "EDITOR STRUK");
+                  addLabel(box, "Nama toko"); storeName = field(box, "PAK DE SURYA");
+                  addLabel(box, "Tagline"); tagline = field(box, "MIE AYAM • MAKANAN LEZAT");
+                  showOrderNo = check(box, "Tampilkan nomor pesanan", true);
+                  showDate = check(box, "Tampilkan tanggal dan waktu", true);
+                  showCustomer = check(box, "Tampilkan nama pelanggan", true);
+                  showPayment = check(box, "Tampilkan metode pembayaran", true);
                   status = new TextView(this); status.setPadding(0,12,0,12);
                   status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
@@ -111,6 +121,8 @@ jobs:
                   addLabel(box, "Total pembayaran (Rp)"); total = field(box, "Contoh: 42000");
                   addLabel(box, "Metode pembayaran"); payment = field(box, "Cash / QRIS / Transfer");
                   addLabel(box, "Catatan / footer"); note = field(box, "Terima kasih sudah memesan!");
+                  Button saveEditor = new Button(this); saveEditor.setText("SIMPAN PENGATURAN STRUK"); box.addView(saveEditor);
+                  saveEditor.setOnClickListener(v -> { saveEditorSettings(); status.setText("Pengaturan struk berhasil disimpan."); Toast.makeText(this, "Pengaturan disimpan", Toast.LENGTH_SHORT).show(); });
                   Button previewButton = new Button(this); previewButton.setText("LIHAT PREVIEW STRUK"); box.addView(previewButton);
                   preview = new TextView(this); preview.setTextIsSelectable(true);
                   preview.setTypeface(Typeface.MONOSPACE); preview.setPadding(12,12,12,12);
@@ -118,6 +130,7 @@ jobs:
                   testButton = new Button(this); testButton.setText("TEST PRINT"); box.addView(testButton);
                   printButton = new Button(this); printButton.setText("CETAK STRUK"); box.addView(printButton);
                   setContentView(scroll);
+                  loadEditorSettings();
                   scan.setOnClickListener(v -> loadPrinters());
                   previewButton.setOnClickListener(v -> {
                       String receipt = buildReceipt();
@@ -149,25 +162,40 @@ jobs:
               EditText field(LinearLayout box, String hint) {
                   EditText e = new EditText(this); e.setSingleLine(true); e.setHint(hint); box.addView(e); return e;
               }
+              CheckBox check(LinearLayout box, String label, boolean checked) {
+                  CheckBox cb = new CheckBox(this); cb.setText(label); cb.setChecked(checked); box.addView(cb); return cb;
+              }
+              void saveEditorSettings() {
+                  prefs.edit().putString("store", value(storeName)).putString("tagline", value(tagline)).putString("footer", value(note))
+                      .putBoolean("order", showOrderNo.isChecked()).putBoolean("date", showDate.isChecked())
+                      .putBoolean("customer", showCustomer.isChecked()).putBoolean("payment", showPayment.isChecked()).apply();
+              }
+              void loadEditorSettings() {
+                  storeName.setText(prefs.getString("store", "PAK DE SURYA"));
+                  tagline.setText(prefs.getString("tagline", "MIE AYAM • MAKANAN LEZAT"));
+                  note.setText(prefs.getString("footer", "Terima kasih sudah memesan!"));
+                  showOrderNo.setChecked(prefs.getBoolean("order", true)); showDate.setChecked(prefs.getBoolean("date", true));
+                  showCustomer.setChecked(prefs.getBoolean("customer", true)); showPayment.setChecked(prefs.getBoolean("payment", true));
+              }
               String buildReceipt() {
                   String itemText = items.getText().toString().trim();
                   String totalText = total.getText().toString().trim();
                   if (itemText.isEmpty() || totalText.isEmpty()) return "";
                   StringBuilder s = new StringBuilder();
                   s.append("\u001B\u0040\u001B\u0061\u0001");
-                  s.append("\u001B\u0045\u0001PAK DE SURYA\n\u001B\u0045\u0000");
-                  s.append("MIE AYAM • MAKANAN LEZAT\n");
+                  s.append("\u001B\u0045\u0001").append(value(storeName).isEmpty() ? "PAK DE SURYA" : value(storeName)).append("\n\u001B\u0045\u0000");
+                  if (!value(tagline).isEmpty()) s.append(value(tagline)).append("\n");
                   s.append("--------------------------------\n");
                   s.append("\u001B\u0061\u0000");
-                  s.append("No: ").append(value(orderNo)).append("\n");
-                  s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", new Locale("id", "ID")).format(new Date())).append("\n");
-                  if (!value(customer).isEmpty()) s.append("Pelanggan: ").append(value(customer)).append("\n");
+                  if (showOrderNo.isChecked() && !value(orderNo).isEmpty()) s.append("No: ").append(value(orderNo)).append("\n");
+                  if (showDate.isChecked()) s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", new Locale("id", "ID")).format(new Date())).append("\n");
+                  if (showCustomer.isChecked() && !value(customer).isEmpty()) s.append("Pelanggan: ").append(value(customer)).append("\n");
                   s.append("--------------------------------\n");
                   s.append("PESANAN\n");
                   for (String line : itemText.split("\\n")) if (!line.trim().isEmpty()) s.append(line.trim()).append("\n");
                   s.append("--------------------------------\n");
                   s.append("\u001B\u0045\u0001TOTAL: Rp ").append(totalText).append("\u001B\u0045\u0000\n");
-                  if (!value(payment).isEmpty()) s.append("Pembayaran: ").append(value(payment)).append("\n");
+                  if (showPayment.isChecked() && !value(payment).isEmpty()) s.append("Pembayaran: ").append(value(payment)).append("\n");
                   s.append("--------------------------------\n");
                   s.append("\u001B\u0061\u0001");
                   s.append(value(note).isEmpty() ? "Terima kasih sudah memesan!" : value(note)).append("\n");
@@ -246,5 +274,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.8
+          name: RPP02N-CustomPrint-APK-v1.9
           path: app/build/outputs/apk/debug/*.apk
