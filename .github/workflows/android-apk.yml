@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 4
-                  versionName '1.3'
+                  versionCode 5
+                  versionName '1.4'
               }
           }
           EOF
@@ -77,23 +77,26 @@ jobs:
               Spinner printers;
               EditText text;
               TextView status;
+              BluetoothSocket activeSocket;
+              volatile boolean printing = false;
+              Button testButton, printButton;
 
               public void onCreate(Bundle b) {
                   super.onCreate(b);
                   adapter = BluetoothAdapter.getDefaultAdapter();
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(1); box.setPadding(24,24,24,24);
-                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.3"); title.setTextSize(22); box.addView(title);
+                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.4"); title.setTextSize(22); box.addView(title);
                   status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
                   printers = new Spinner(this); box.addView(printers);
                   text = new EditText(this); text.setHint("Tulis teks yang akan dicetak"); text.setMinLines(6); box.addView(text);
-                  Button test = new Button(this); test.setText("TEST PRINT"); box.addView(test);
-                  Button print = new Button(this); print.setText("CETAK TEKS"); box.addView(print);
+                  testButton = new Button(this); testButton.setText("TEST PRINT"); box.addView(testButton);
+                  printButton = new Button(this); printButton.setText("CETAK TEKS"); box.addView(printButton);
                   setContentView(box);
                   scan.setOnClickListener(v -> loadPrinters());
                   test.setOnClickListener(v -> send("TEST PRINT RPP02N\nBluetooth SPP OK\n\n"));
-                  print.setOnClickListener(v -> {
+                  printButton.setOnClickListener(v -> {
                       String value = text.getText().toString().trim();
                       if (value.isEmpty()) {
                           status.setText("Teks masih kosong. Isi teks terlebih dahulu.");
@@ -134,42 +137,80 @@ jobs:
               }
 
               void send(String payload) {
+                  if (printing) { status.setText("Printer sedang memproses. Tunggu sebentar..."); return; }
                   if (devices.isEmpty()) { status.setText("Muat printer paired terlebih dahulu"); return; }
                   int index = printers.getSelectedItemPosition();
                   if (index < 0 || index >= devices.size()) { status.setText("Pilih printer"); return; }
                   BluetoothDevice device = devices.get(index);
+                  printing = true;
+                  testButton.setEnabled(false); printButton.setEnabled(false);
                   status.setText("Menghubungkan ke " + device.getAddress() + " ...");
                   new Thread(() -> {
-                      BluetoothSocket socket = null;
-                      Exception last = null;
+                      String result = null;
                       try {
-                          try { socket = device.createRfcommSocketToServiceRecord(SPP); socket.connect(); }
-                          catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
-                          if (socket == null || !socket.isConnected()) {
-                              try { socket = device.createInsecureRfcommSocketToServiceRecord(SPP); socket.connect(); }
-                              catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
-                          }
-                          if (socket == null || !socket.isConnected()) {
+                          if (adapter != null) adapter.cancelDiscovery();
+                          // Keep one SPP socket alive between jobs; this avoids rapid
+                          // connect/close cycles that can leave the printer unavailable.
+                          for (int attempt = 1; attempt <= 2; attempt++) {
                               try {
-                                  Method m = device.getClass().getMethod("createRfcommSocket", int.class);
-                                  socket = (BluetoothSocket)m.invoke(device, 1);
-                                  socket.connect();
-                              } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                                  if (activeSocket == null || !activeSocket.isConnected()) {
+                                      closeQuietly(activeSocket); activeSocket = null;
+                                      activeSocket = openSocket(device);
+                                  }
+                                  OutputStream out = activeSocket.getOutputStream();
+                                  out.write(new byte[]{0x1B,0x40});
+                                  out.write(payload.getBytes(Charset.forName("IBM850")));
+                                  out.write(new byte[]{0x1B,0x64,0x03});
+                                  out.flush();
+                                  // Give the printer time to drain its receive buffer.
+                                  Thread.sleep(700);
+                                  result = "Data dikirim. Koneksi printer dipertahankan.";
+                                  break;
+                              } catch (Exception e) {
+                                  closeQuietly(activeSocket); activeSocket = null;
+                                  if (attempt == 2) throw e;
+                                  Thread.sleep(400);
+                              }
                           }
-                          if (socket == null || !socket.isConnected()) throw new IOException("Semua metode SPP gagal", last);
-                          OutputStream out = socket.getOutputStream();
-                          out.write(new byte[]{0x1B,0x40});
-                          out.write(payload.getBytes(Charset.forName("IBM850")));
-                          out.write(new byte[]{0x1B,0x64,0x03});
-                          out.flush();
-                          closeQuietly(socket);
-                          runOnUiThread(() -> status.setText("Data cetak terkirim ke " + device.getAddress()));
                       } catch (Exception e) {
-                          closeQuietly(socket);
-                          final String msg = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
-                          runOnUiThread(() -> status.setText("GAGAL: " + msg));
+                          closeQuietly(activeSocket); activeSocket = null;
+                          result = "GAGAL: " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
                       }
+                      final String message = result;
+                      runOnUiThread(() -> {
+                          status.setText(message);
+                          printing = false;
+                          testButton.setEnabled(true); printButton.setEnabled(true);
+                      });
                   }).start();
+              }
+
+              BluetoothSocket openSocket(BluetoothDevice device) throws Exception {
+                  Exception last = null;
+                  BluetoothSocket socket = null;
+                  try {
+                      socket = device.createRfcommSocketToServiceRecord(SPP);
+                      socket.connect();
+                      return socket;
+                  } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                  try {
+                      socket = device.createInsecureRfcommSocketToServiceRecord(SPP);
+                      socket.connect();
+                      return socket;
+                  } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                  try {
+                      Method m = device.getClass().getMethod("createRfcommSocket", int.class);
+                      socket = (BluetoothSocket)m.invoke(device, 1);
+                      socket.connect();
+                      return socket;
+                  } catch (Exception e) { last = e; closeQuietly(socket); }
+                  throw new IOException("Semua metode koneksi SPP gagal", last);
+              }
+
+              @Override public void onDestroy() {
+                  closeQuietly(activeSocket);
+                  activeSocket = null;
+                  super.onDestroy();
               }
               void closeQuietly(BluetoothSocket s) { if (s != null) try { s.close(); } catch (Exception ignored) {} }
           }
@@ -179,5 +220,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.3
+          name: RPP02N-CustomPrint-APK-v1.4
           path: app/build/outputs/apk/debug/*.apk
