@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 11
-                  versionName '2.0'
+                  versionCode 12
+                  versionName '2.1'
               }
           }
           EOF
@@ -73,6 +73,8 @@ jobs:
           import java.nio.charset.Charset;
           import java.lang.reflect.Method;
           import java.text.SimpleDateFormat;
+          import org.json.JSONArray;
+          import org.json.JSONObject;
           
           public class MainActivity extends Activity {
               static final String PRINTER_MAC = "86:67:7A:CF:48:AE";
@@ -86,7 +88,7 @@ jobs:
               TextView status, preview;
               BluetoothSocket activeSocket;
               volatile boolean printing = false;
-              Button testButton, printButton;
+              Button testButton, printButton, historyButton;
           
               public void onCreate(Bundle b) {
                   super.onCreate(b);
@@ -133,6 +135,8 @@ jobs:
                   paperParams.gravity = Gravity.CENTER_HORIZONTAL; paperParams.setMargins(0,0,0,16); box.addView(preview, paperParams);
                   testButton = new Button(this); testButton.setText("TEST PRINT"); box.addView(testButton);
                   printButton = new Button(this); printButton.setText("CETAK STRUK"); box.addView(printButton);
+                  historyButton = new Button(this); historyButton.setText("RIWAYAT CETAK"); box.addView(historyButton);
+                  historyButton.setOnClickListener(v -> showHistory());
                   setContentView(scroll);
                   loadEditorSettings();
                   scan.setOnClickListener(v -> loadPrinters());
@@ -140,7 +144,7 @@ jobs:
                       String receipt = buildReceipt();
                       preview.setText(receipt.isEmpty() ? "Lengkapi daftar pesanan dan total." : buildPreview());
                   });
-                  testButton.setOnClickListener(v -> send("\u001B\u0040\u001B\u0061\u0001PAK DE SURYA\nTEST PRINT RPP02N\nBLUETOOTH SPP OK\n\n\u001B\u0061\u0000"));
+                  testButton.setOnClickListener(v -> send("\u001B\u0040\u001B\u0061\u0001PAK DE SURYA\nTEST PRINT RPP02N\nBLUETOOTH SPP OK\n\n\u001B\u0061\u0000", false, null));
                   printButton.setOnClickListener(v -> {
                       String receipt = buildReceipt();
                       if (receipt.isEmpty()) {
@@ -149,7 +153,7 @@ jobs:
                           return;
                       }
                       ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(items.getWindowToken(), 0);
-                      send(receipt + "\n\n\n");
+                      send(receipt + "\n\n\n", true, makeHistoryEntry(receipt));
                   });
                   if (Build.VERSION.SDK_INT >= 31) {
                       ArrayList<String> missing = new ArrayList<>();
@@ -226,6 +230,52 @@ jobs:
                   return s.toString();
               }
               String value(EditText e) { return e.getText().toString().trim(); }
+              String makeHistoryEntry(String receipt) {
+                  try {
+                      JSONObject item = new JSONObject();
+                      item.put("time", new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", new Locale("id", "ID")).format(new Date()));
+                      item.put("order", value(orderNo).isEmpty() ? "(Tanpa nomor)" : value(orderNo));
+                      item.put("customer", value(customer).isEmpty() ? "-" : value(customer));
+                      item.put("total", value(total));
+                      item.put("payload", receipt + "\\n\\n\\n");
+                      return item.toString();
+                  } catch (Exception e) { return null; }
+              }
+              void persistHistory(String entry) {
+                  try {
+                      JSONArray old = new JSONArray(prefs.getString("print_history", "[]"));
+                      JSONArray updated = new JSONArray(); updated.put(new JSONObject(entry));
+                      for (int i=0; i<old.length() && i<99; i++) updated.put(old.getJSONObject(i));
+                      prefs.edit().putString("print_history", updated.toString()).apply();
+                  } catch (Exception ignored) {}
+              }
+              void showHistory() {
+                  try {
+                      JSONArray history = new JSONArray(prefs.getString("print_history", "[]"));
+                      if (history.length()==0) {
+                          new AlertDialog.Builder(this).setTitle("Riwayat Cetak").setMessage("Belum ada struk berhasil dicetak.")
+                              .setPositiveButton("TUTUP",null).show(); return;
+                      }
+                      String[] labels=new String[history.length()];
+                      for(int i=0;i<history.length();i++){
+                          JSONObject item=history.getJSONObject(i);
+                          labels[i]=item.optString("order")+" • Rp "+item.optString("total")+"\\n"+item.optString("customer")+" • "+item.optString("time");
+                      }
+                      new AlertDialog.Builder(this).setTitle("Riwayat Cetak ("+history.length()+")").setItems(labels,(d,which)->{
+                          try {
+                              JSONObject item=history.getJSONObject(which);
+                              String detail="Pesanan: "+item.optString("order")+"\\nPelanggan: "+item.optString("customer")+
+                                  "\\nTotal: Rp "+item.optString("total")+"\\nWaktu: "+item.optString("time");
+                              new AlertDialog.Builder(this).setTitle("Detail Struk").setMessage(detail)
+                                  .setPositiveButton("CETAK ULANG",(x,y)->send(item.optString("payload"),false,null))
+                                  .setNegativeButton("TUTUP",null).show();
+                          } catch(Exception ignored){}
+                      }).setNeutralButton("HAPUS SEMUA",(d,w)->new AlertDialog.Builder(this).setTitle("Hapus riwayat?")
+                          .setMessage("Semua riwayat cetak akan dihapus.").setNegativeButton("BATAL",null)
+                          .setPositiveButton("HAPUS",(x,y)->{prefs.edit().remove("print_history").apply();Toast.makeText(this,"Riwayat dihapus",Toast.LENGTH_SHORT).show();}).show())
+                          .setNegativeButton("TUTUP",null).show();
+                  } catch(Exception e){Toast.makeText(this,"Gagal membaca riwayat",Toast.LENGTH_SHORT).show();}
+              }
           
               public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -247,7 +297,7 @@ jobs:
                       status.setText(devices.isEmpty() ? "Belum ada printer paired." : "Printer target diprioritaskan: " + PRINTER_MAC);
                   } catch (Exception e) { status.setText("Bluetooth: " + e.getMessage()); }
               }
-              void send(String payload) {
+              void send(String payload, boolean saveReceipt, String historyEntry) {
                   if (printing) { status.setText("Printer sedang memproses. Tunggu sebentar..."); return; }
                   if (devices.isEmpty()) { status.setText("Muat printer paired terlebih dahulu"); return; }
                   int index = printers.getSelectedItemPosition();
@@ -265,7 +315,8 @@ jobs:
                                   OutputStream out = activeSocket.getOutputStream();
                                   out.write(payload.getBytes(Charset.forName("IBM850")));
                                   out.write(new byte[]{0x1B,0x64,0x03}); out.flush(); Thread.sleep(700);
-                                  result = "Data struk dikirim ke printer."; break;
+                                  if (saveReceipt && historyEntry != null) persistHistory(historyEntry);
+                                  result = saveReceipt ? "Struk terkirim dan tersimpan di riwayat." : "Data struk dikirim ke printer."; break;
                               } catch (Exception e) {
                                   closeQuietly(activeSocket); activeSocket = null;
                                   if (attempt == 2) throw e; Thread.sleep(400);
@@ -296,5 +347,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v2.0
+          name: RPP02N-CustomPrint-APK-v2.1
           path: app/build/outputs/apk/debug/*.apk
