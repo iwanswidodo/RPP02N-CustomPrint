@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 8
-                  versionName '1.7'
+                  versionCode 9
+                  versionName '1.8'
               }
           }
           EOF
@@ -64,74 +64,126 @@ jobs:
           import android.bluetooth.*;
           import android.content.pm.PackageManager;
           import android.Manifest;
+          import android.view.*;
+          import android.view.inputmethod.InputMethodManager;
           import android.widget.*;
+          import android.graphics.Typeface;
           import java.util.*;
           import java.io.*;
           import java.nio.charset.Charset;
           import java.lang.reflect.Method;
-
+          import java.text.SimpleDateFormat;
+          
           public class MainActivity extends Activity {
               static final String PRINTER_MAC = "86:67:7A:CF:48:AE";
               static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
               BluetoothAdapter adapter;
               ArrayList<BluetoothDevice> devices = new ArrayList<>();
               Spinner printers;
-              EditText text;
-              TextView status;
+              EditText orderNo, customer, items, total, payment, note;
+              TextView status, preview;
               BluetoothSocket activeSocket;
               volatile boolean printing = false;
               Button testButton, printButton;
-
+          
               public void onCreate(Bundle b) {
                   super.onCreate(b);
                   adapter = BluetoothAdapter.getDefaultAdapter();
+                  ScrollView scroll = new ScrollView(this);
                   LinearLayout box = new LinearLayout(this);
-                  box.setOrientation(1); box.setPadding(24,24,24,24);
-                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.7"); title.setTextSize(22); box.addView(title);
-                  status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
+                  box.setOrientation(LinearLayout.VERTICAL); box.setPadding(24,20,24,24);
+                  scroll.addView(box);
+                  TextView title = new TextView(this);
+                  title.setText("PAK DE SURYA • CETAK STRUK v1.8");
+                  title.setTextSize(21); title.setTypeface(null, Typeface.BOLD); box.addView(title);
+                  TextView subtitle = new TextView(this);
+                  subtitle.setText("Template struk khusus Mie Ayam Pak De Surya");
+                  box.addView(subtitle);
+                  status = new TextView(this); status.setPadding(0,12,0,12);
+                  status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
                   printers = new Spinner(this); box.addView(printers);
-                  text = new EditText(this); text.setHint("Tulis teks yang akan dicetak"); text.setMinLines(6); box.addView(text);
+                  addLabel(box, "Nomor pesanan"); orderNo = field(box, "Contoh: #001");
+                  addLabel(box, "Nama pelanggan"); customer = field(box, "Nama pelanggan (opsional)");
+                  addLabel(box, "Daftar pesanan");
+                  items = new EditText(this); items.setHint("Mie Ayam Original x1  12000\nMie Ayam Bakso x2  30000");
+                  items.setMinLines(4); items.setGravity(Gravity.TOP); box.addView(items);
+                  addLabel(box, "Total pembayaran (Rp)"); total = field(box, "Contoh: 42000");
+                  addLabel(box, "Metode pembayaran"); payment = field(box, "Cash / QRIS / Transfer");
+                  addLabel(box, "Catatan / footer"); note = field(box, "Terima kasih sudah memesan!");
+                  Button previewButton = new Button(this); previewButton.setText("LIHAT PREVIEW STRUK"); box.addView(previewButton);
+                  preview = new TextView(this); preview.setTextIsSelectable(true);
+                  preview.setTypeface(Typeface.MONOSPACE); preview.setPadding(12,12,12,12);
+                  preview.setBackgroundColor(0xFFF1F1F1); box.addView(preview);
                   testButton = new Button(this); testButton.setText("TEST PRINT"); box.addView(testButton);
-                  printButton = new Button(this); printButton.setText("CETAK TEKS"); box.addView(printButton);
-                  setContentView(box);
+                  printButton = new Button(this); printButton.setText("CETAK STRUK"); box.addView(printButton);
+                  setContentView(scroll);
                   scan.setOnClickListener(v -> loadPrinters());
-                  testButton.setOnClickListener(v -> send("TEST PRINT RPP02N\nBluetooth SPP OK\n\n"));
+                  previewButton.setOnClickListener(v -> {
+                      String receipt = buildReceipt();
+                      preview.setText(receipt.isEmpty() ? "Lengkapi daftar pesanan dan total." : receipt);
+                  });
+                  testButton.setOnClickListener(v -> send("\u001B\u0040\u001B\u0061\u0001PAK DE SURYA\nTEST PRINT RPP02N\nBLUETOOTH SPP OK\n\n\u001B\u0061\u0000"));
                   printButton.setOnClickListener(v -> {
-                      String value = text.getText().toString().trim();
-                      if (value.isEmpty()) {
-                          status.setText("Teks masih kosong. Isi teks terlebih dahulu.");
-                          Toast.makeText(this, "Isi teks yang akan dicetak", Toast.LENGTH_SHORT).show();
-                          text.requestFocus();
+                      String receipt = buildReceipt();
+                      if (receipt.isEmpty()) {
+                          status.setText("Daftar pesanan dan total wajib diisi.");
+                          Toast.makeText(this, "Lengkapi pesanan dan total", Toast.LENGTH_SHORT).show();
                           return;
                       }
-                      status.setText("Teks diterima, memulai proses cetak...");
-                      ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
-                          .hideSoftInputFromWindow(text.getWindowToken(), 0);
-                      text.clearFocus();
-                      send(value + "\n\n");
+                      ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(items.getWindowToken(), 0);
+                      send(receipt + "\n\n\n");
                   });
                   if (Build.VERSION.SDK_INT >= 31) {
                       ArrayList<String> missing = new ArrayList<>();
-                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
-                          missing.add(Manifest.permission.BLUETOOTH_CONNECT);
-                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
-                          missing.add(Manifest.permission.BLUETOOTH_SCAN);
-                      if (!missing.isEmpty()) requestPermissions(missing.toArray(new String[0]), 10);
-                      else loadPrinters();
+                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.BLUETOOTH_CONNECT);
+                      if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.BLUETOOTH_SCAN);
+                      if (!missing.isEmpty()) requestPermissions(missing.toArray(new String[0]), 10); else loadPrinters();
                   } else loadPrinters();
               }
-
+          
+              void addLabel(LinearLayout box, String value) {
+                  TextView label = new TextView(this); label.setText(value);
+                  label.setTypeface(null, Typeface.BOLD); label.setPadding(0,12,0,2); box.addView(label);
+              }
+              EditText field(LinearLayout box, String hint) {
+                  EditText e = new EditText(this); e.setSingleLine(true); e.setHint(hint); box.addView(e); return e;
+              }
+              String buildReceipt() {
+                  String itemText = items.getText().toString().trim();
+                  String totalText = total.getText().toString().trim();
+                  if (itemText.isEmpty() || totalText.isEmpty()) return "";
+                  StringBuilder s = new StringBuilder();
+                  s.append("\u001B\u0040\u001B\u0061\u0001");
+                  s.append("\u001B\u0045\u0001PAK DE SURYA\n\u001B\u0045\u0000");
+                  s.append("MIE AYAM • MAKANAN LEZAT\n");
+                  s.append("--------------------------------\n");
+                  s.append("\u001B\u0061\u0000");
+                  s.append("No: ").append(value(orderNo)).append("\n");
+                  s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale Indonesia).format(new Date())).append("\n");
+                  if (!value(customer).isEmpty()) s.append("Pelanggan: ").append(value(customer)).append("\n");
+                  s.append("--------------------------------\n");
+                  s.append("PESANAN\n");
+                  for (String line : itemText.split("\\n")) if (!line.trim().isEmpty()) s.append(line.trim()).append("\n");
+                  s.append("--------------------------------\n");
+                  s.append("\u001B\u0045\u0001TOTAL: Rp ").append(totalText).append("\u001B\u0045\u0000\n");
+                  if (!value(payment).isEmpty()) s.append("Pembayaran: ").append(value(payment)).append("\n");
+                  s.append("--------------------------------\n");
+                  s.append("\u001B\u0061\u0001");
+                  s.append(value(note).isEmpty() ? "Terima kasih sudah memesan!" : value(note)).append("\n");
+                  s.append("Selamat menikmati :)\n\n");
+                  s.append("\u001B\u0061\u0000");
+                  return s.toString();
+              }
+              String value(EditText e) { return e.getText().toString().trim(); }
+          
               public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults);
                   if (requestCode == 10 && grantResults.length > 0) {
-                      boolean allGranted = true;
-                      for (int result : grantResults) if (result != PackageManager.PERMISSION_GRANTED) allGranted = false;
-                      if (allGranted) loadPrinters();
-                      else status.setText("Izin Bluetooth CONNECT dan SCAN diperlukan. Aktifkan melalui Pengaturan Aplikasi.");
+                      boolean ok = true; for (int r : grantResults) if (r != PackageManager.PERMISSION_GRANTED) ok = false;
+                      if (ok) loadPrinters(); else status.setText("Izin Bluetooth CONNECT dan SCAN diperlukan.");
                   }
               }
-
               void loadPrinters() {
                   try {
                       devices.clear();
@@ -142,89 +194,50 @@ jobs:
                       ArrayList<String> labels = new ArrayList<>();
                       for (BluetoothDevice d : devices) labels.add((PRINTER_MAC.equalsIgnoreCase(d.getAddress()) ? "★ PRINTER TARGET - " : "") + d.getName() + " - " + d.getAddress());
                       printers.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, labels));
-                      if (devices.isEmpty()) status.setText("Belum ada printer paired. Pair melalui pengaturan Bluetooth HP.");
-                      else status.setText("Printer target diprioritaskan: " + PRINTER_MAC);
+                      status.setText(devices.isEmpty() ? "Belum ada printer paired." : "Printer target diprioritaskan: " + PRINTER_MAC);
                   } catch (Exception e) { status.setText("Bluetooth: " + e.getMessage()); }
               }
-
               void send(String payload) {
                   if (printing) { status.setText("Printer sedang memproses. Tunggu sebentar..."); return; }
                   if (devices.isEmpty()) { status.setText("Muat printer paired terlebih dahulu"); return; }
                   int index = printers.getSelectedItemPosition();
                   if (index < 0 || index >= devices.size()) { status.setText("Pilih printer"); return; }
                   BluetoothDevice device = devices.get(index);
-                  printing = true;
-                  testButton.setEnabled(false); printButton.setEnabled(false);
+                  printing = true; testButton.setEnabled(false); printButton.setEnabled(false);
                   status.setText("Menghubungkan ke " + device.getAddress() + " ...");
                   new Thread(() -> {
-                      String result = null;
+                      String result;
                       try {
-                          if (adapter != null && Build.VERSION.SDK_INT >= 31 &&
-                              checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED)
-                              adapter.cancelDiscovery();
-                          // Keep one SPP socket alive between jobs; this avoids rapid
-                          // connect/close cycles that can leave the printer unavailable.
+                          if (adapter != null && Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) adapter.cancelDiscovery();
                           for (int attempt = 1; attempt <= 2; attempt++) {
                               try {
-                                  if (activeSocket == null || !activeSocket.isConnected()) {
-                                      closeQuietly(activeSocket); activeSocket = null;
-                                      activeSocket = openSocket(device);
-                                  }
+                                  if (activeSocket == null || !activeSocket.isConnected()) { closeQuietly(activeSocket); activeSocket = null; activeSocket = openSocket(device); }
                                   OutputStream out = activeSocket.getOutputStream();
-                                  out.write(new byte[]{0x1B,0x40});
                                   out.write(payload.getBytes(Charset.forName("IBM850")));
-                                  out.write(new byte[]{0x1B,0x64,0x03});
-                                  out.flush();
-                                  // Give the printer time to drain its receive buffer.
-                                  Thread.sleep(700);
-                                  result = "Data dikirim. Koneksi printer dipertahankan.";
-                                  break;
+                                  out.write(new byte[]{0x1B,0x64,0x03}); out.flush(); Thread.sleep(700);
+                                  result = "Data struk dikirim ke printer."; break;
                               } catch (Exception e) {
                                   closeQuietly(activeSocket); activeSocket = null;
-                                  if (attempt == 2) throw e;
-                                  Thread.sleep(400);
+                                  if (attempt == 2) throw e; Thread.sleep(400);
                               }
                           }
-                      } catch (Exception e) {
-                          closeQuietly(activeSocket); activeSocket = null;
-                          result = "GAGAL: " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
-                      }
+                          if (activeSocket == null) result = "Koneksi printer terputus.";
+                      } catch (Exception e) { closeQuietly(activeSocket); activeSocket = null; result = "GAGAL: " + e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage()); }
                       final String message = result;
-                      runOnUiThread(() -> {
-                          status.setText(message);
-                          printing = false;
-                          testButton.setEnabled(true); printButton.setEnabled(true);
-                      });
+                      runOnUiThread(() -> { status.setText(message); printing = false; testButton.setEnabled(true); printButton.setEnabled(true); });
                   }).start();
               }
-
               BluetoothSocket openSocket(BluetoothDevice device) throws Exception {
-                  Exception last = null;
-                  BluetoothSocket socket = null;
-                  try {
-                      socket = device.createRfcommSocketToServiceRecord(SPP);
-                      socket.connect();
-                      return socket;
-                  } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
-                  try {
-                      socket = device.createInsecureRfcommSocketToServiceRecord(SPP);
-                      socket.connect();
-                      return socket;
-                  } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
-                  try {
-                      Method m = device.getClass().getMethod("createRfcommSocket", int.class);
-                      socket = (BluetoothSocket)m.invoke(device, 1);
-                      socket.connect();
-                      return socket;
-                  } catch (Exception e) { last = e; closeQuietly(socket); }
+                  Exception last = null; BluetoothSocket socket = null;
+                  try { socket = device.createRfcommSocketToServiceRecord(SPP); socket.connect(); return socket; }
+                  catch (Exception e) { last=e; closeQuietly(socket); socket=null; }
+                  try { socket = device.createInsecureRfcommSocketToServiceRecord(SPP); socket.connect(); return socket; }
+                  catch (Exception e) { last=e; closeQuietly(socket); socket=null; }
+                  try { Method m=device.getClass().getMethod("createRfcommSocket", int.class); socket=(BluetoothSocket)m.invoke(device,1); socket.connect(); return socket; }
+                  catch (Exception e) { last=e; closeQuietly(socket); }
                   throw new IOException("Semua metode koneksi SPP gagal", last);
               }
-
-              @Override public void onDestroy() {
-                  closeQuietly(activeSocket);
-                  activeSocket = null;
-                  super.onDestroy();
-              }
+              @Override public void onDestroy() { closeQuietly(activeSocket); activeSocket=null; super.onDestroy(); }
               void closeQuietly(BluetoothSocket s) { if (s != null) try { s.close(); } catch (Exception ignored) {} }
           }
           EOF
@@ -233,5 +246,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.7
+          name: RPP02N-CustomPrint-APK-v1.8
           path: app/build/outputs/apk/debug/*.apk
