@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 10
-                  versionName '1.9'
+                  versionCode 11
+                  versionName '2.0'
               }
           }
           EOF
@@ -96,7 +96,7 @@ jobs:
                   box.setOrientation(LinearLayout.VERTICAL); box.setPadding(24,20,24,24);
                   scroll.addView(box);
                   TextView title = new TextView(this);
-                  title.setText("PAK DE SURYA • CETAK STRUK v1.9");
+                  title.setText("PAK DE SURYA • CETAK STRUK v2.0");
                   title.setTextSize(21); title.setTypeface(null, Typeface.BOLD); box.addView(title);
                   TextView subtitle = new TextView(this);
                   subtitle.setText("Template struk khusus Mie Ayam Pak De Surya");
@@ -123,10 +123,14 @@ jobs:
                   addLabel(box, "Catatan / footer"); note = field(box, "Terima kasih sudah memesan!");
                   Button saveEditor = new Button(this); saveEditor.setText("SIMPAN PENGATURAN STRUK"); box.addView(saveEditor);
                   saveEditor.setOnClickListener(v -> { saveEditorSettings(); status.setText("Pengaturan struk berhasil disimpan."); Toast.makeText(this, "Pengaturan disimpan", Toast.LENGTH_SHORT).show(); });
-                  Button previewButton = new Button(this); previewButton.setText("LIHAT PREVIEW STRUK"); box.addView(previewButton);
+                  Button previewButton = new Button(this); previewButton.setText("LIHAT PREVIEW STRUK 58MM"); box.addView(previewButton);
+                  TextView paperLabel = new TextView(this); paperLabel.setText("SIMULASI KERTAS THERMAL 58 MM"); paperLabel.setGravity(Gravity.CENTER); paperLabel.setPadding(0,8,0,8); box.addView(paperLabel);
                   preview = new TextView(this); preview.setTextIsSelectable(true);
-                  preview.setTypeface(Typeface.MONOSPACE); preview.setPadding(12,12,12,12);
-                  preview.setBackgroundColor(0xFFF1F1F1); box.addView(preview);
+                  preview.setTypeface(Typeface.MONOSPACE); preview.setTextSize(11); preview.setTextColor(0xFF111111);
+                  preview.setPadding(10,14,10,14); preview.setGravity(Gravity.START);
+                  preview.setBackgroundColor(0xFFFFFFFF); preview.setElevation(4);
+                  LinearLayout.LayoutParams paperParams = new LinearLayout.LayoutParams(dp(220), LinearLayout.LayoutParams.WRAP_CONTENT);
+                  paperParams.gravity = Gravity.CENTER_HORIZONTAL; paperParams.setMargins(0,0,0,16); box.addView(preview, paperParams);
                   testButton = new Button(this); testButton.setText("TEST PRINT"); box.addView(testButton);
                   printButton = new Button(this); printButton.setText("CETAK STRUK"); box.addView(printButton);
                   setContentView(scroll);
@@ -134,7 +138,7 @@ jobs:
                   scan.setOnClickListener(v -> loadPrinters());
                   previewButton.setOnClickListener(v -> {
                       String receipt = buildReceipt();
-                      preview.setText(receipt.isEmpty() ? "Lengkapi daftar pesanan dan total." : receipt);
+                      preview.setText(receipt.isEmpty() ? "Lengkapi daftar pesanan dan total." : buildPreview());
                   });
                   testButton.setOnClickListener(v -> send("\u001B\u0040\u001B\u0061\u0001PAK DE SURYA\nTEST PRINT RPP02N\nBLUETOOTH SPP OK\n\n\u001B\u0061\u0000"));
                   printButton.setOnClickListener(v -> {
@@ -155,6 +159,7 @@ jobs:
                   } else loadPrinters();
               }
           
+              int dp(int value) { return (int)(value * getResources().getDisplayMetrics().density + 0.5f); }
               void addLabel(LinearLayout box, String value) {
                   TextView label = new TextView(this); label.setText(value);
                   label.setTypeface(null, Typeface.BOLD); label.setPadding(0,12,0,2); box.addView(label);
@@ -201,6 +206,23 @@ jobs:
                   s.append(value(note).isEmpty() ? "Terima kasih sudah memesan!" : value(note)).append("\n");
                   s.append("Selamat menikmati :)\n\n");
                   s.append("\u001B\u0061\u0000");
+                  return s.toString();
+              }
+              String buildPreview() {
+                  StringBuilder s = new StringBuilder();
+                  String store = value(storeName).isEmpty() ? "PAK DE SURYA" : value(storeName);
+                  s.append("          ").append(store).append("\n");
+                  if (!value(tagline).isEmpty()) s.append(value(tagline)).append("\n");
+                  s.append("--------------------------------\n");
+                  if (showOrderNo.isChecked() && !value(orderNo).isEmpty()) s.append("No: ").append(value(orderNo)).append("\n");
+                  if (showDate.isChecked()) s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", new Locale("id", "ID")).format(new Date())).append("\n");
+                  if (showCustomer.isChecked() && !value(customer).isEmpty()) s.append("Pelanggan: ").append(value(customer)).append("\n");
+                  s.append("--------------------------------\nPESANAN\n");
+                  for (String line : value(items).split("\\n")) if (!line.trim().isEmpty()) s.append(line.trim()).append("\n");
+                  s.append("--------------------------------\nTOTAL: Rp ").append(value(total)).append("\n");
+                  if (showPayment.isChecked() && !value(payment).isEmpty()) s.append("Pembayaran: ").append(value(payment)).append("\n");
+                  s.append("--------------------------------\n");
+                  s.append(value(note).isEmpty() ? "Terima kasih sudah memesan!" : value(note)).append("\nSelamat menikmati :)\n");
                   return s.toString();
               }
               String value(EditText e) { return e.getText().toString().trim(); }
@@ -274,5 +296,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.9
+          name: RPP02N-CustomPrint-APK-v2.0
           path: app/build/outputs/apk/debug/*.apk
