@@ -1,0 +1,231 @@
+name: Build RPP02N Custom Print APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p app/src/main/java/com/iwan/customprint
+          mkdir -p app/src/main
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "RPP02N-CustomPrint"
+          include ':app'
+          EOF
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.iwan.customprint'
+              compileSdk 35
+              defaultConfig {
+                  applicationId 'com.iwan.customprint'
+                  minSdk 23
+                  targetSdk 32
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.BLUETOOTH"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+              <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
+              <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                  android:label="RPP02N Custom Print">
+                  <activity android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/java/com/iwan/customprint/MainActivity.java <<'EOF'
+          package com.iwan.customprint;
+
+          import android.app.*;
+          import android.os.*;
+          import android.bluetooth.*;
+          import android.content.*;
+          import android.content.pm.PackageManager;
+          import android.Manifest;
+          import android.widget.*;
+          import java.util.*;
+          import java.io.*;
+
+          public class MainActivity extends Activity {
+              BluetoothAdapter adapter;
+              ArrayList<BluetoothDevice> devices = new ArrayList<>();
+              Spinner printers;
+              EditText text;
+              TextView status;
+
+              public void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  adapter = BluetoothAdapter.getDefaultAdapter();
+
+                  LinearLayout box = new LinearLayout(this);
+                  box.setOrientation(1);
+                  box.setPadding(24,24,24,24);
+
+                  TextView title = new TextView(this);
+                  title.setText("RPP02N CUSTOM PRINT");
+                  title.setTextSize(24);
+                  box.addView(title);
+
+                  status = new TextView(this);
+                  status.setText("Bluetooth Thermal Printer");
+                  box.addView(status);
+
+                  Button scan = new Button(this);
+                  scan.setText("Muat Printer Paired");
+                  box.addView(scan);
+
+                  printers = new Spinner(this);
+                  box.addView(printers);
+
+                  text = new EditText(this);
+                  text.setHint("Masukkan teks untuk dicetak");
+                  text.setMinLines(6);
+                  box.addView(text);
+
+                  Button print = new Button(this);
+                  print.setText("CETAK");
+                  box.addView(print);
+
+                  setContentView(box);
+
+                  scan.setOnClickListener(v -> loadPrinters());
+                  print.setOnClickListener(v -> printText());
+
+                  if (Build.VERSION.SDK_INT >= 31 &&
+                      checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                      != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissions(
+                          new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 10);
+                  } else loadPrinters();
+              }
+
+              void loadPrinters() {
+                  try {
+                      devices.clear();
+                      if(adapter == null) {
+                          status.setText("Bluetooth tidak tersedia");
+                          return;
+                      }
+                      devices.addAll(adapter.getBondedDevices());
+                      ArrayList<String> names = new ArrayList<>();
+                      for(BluetoothDevice d: devices)
+                          names.add(d.getName()+" - "+d.getAddress());
+
+                      printers.setAdapter(new ArrayAdapter<String>(
+                          this, android.R.layout.simple_spinner_dropdown_item, names));
+
+                      status.setText(devices.isEmpty()
+                          ? "Pair printer melalui pengaturan Bluetooth HP"
+                          : "Pilih printer yang akan digunakan");
+                  } catch(Exception e) {
+                      status.setText("Bluetooth: "+e.getMessage());
+                  }
+              }
+
+              void printText() {
+                  if(devices.isEmpty()) {
+                      status.setText("Belum ada printer paired");
+                      return;
+                  }
+
+                  BluetoothDevice device =
+                      devices.get(printers.getSelectedItemPosition());
+
+                  new Thread(() -> {
+                      try {
+                          UUID uuid = UUID.fromString(
+                              "00001101-0000-1000-8000-00805F9B34FB");
+
+                          BluetoothSocket socket =
+                              device.createRfcommSocketToServiceRecord(uuid);
+
+                          socket.connect();
+                          OutputStream out = socket.getOutputStream();
+
+                          out.write(new byte[]{27,64});
+                          out.write(text.getText().toString()
+                              .getBytes("UTF-8"));
+                          out.write(new byte[]{10,10,10});
+                          out.flush();
+                          socket.close();
+
+                          runOnUiThread(() ->
+                              status.setText("Perintah cetak terkirim!"));
+
+                      } catch(Exception e) {
+                          runOnUiThread(() ->
+                              status.setText("Gagal: "+e.getMessage()));
+                      }
+                  }).start();
+              }
+          }
+          EOF
+
+      - name: Build APK
+        run: gradle assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPP02N-CustomPrint-APK
+          path: app/build/outputs/apk/debug/*.apk
