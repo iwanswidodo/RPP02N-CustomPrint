@@ -160,7 +160,7 @@ jobs:
                   s.append("--------------------------------\n");
                   s.append("\u001B\u0061\u0000");
                   s.append("No: ").append(value(orderNo)).append("\n");
-                  s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.INDONESIA).format(new Date())).append("\n");
+                  s.append("Tanggal: ").append(new SimpleDateFormat("dd/MM/yyyy HH:mm", new Locale("id", "ID")).format(new Date())).append("\n");
                   if (!value(customer).isEmpty()) s.append("Pelanggan: ").append(value(customer)).append("\n");
                   s.append("--------------------------------\n");
                   s.append("PESANAN\n");
