@@ -1,67 +1,37 @@
 name: Build RPP02N Custom Print APK
-
 on:
   workflow_dispatch:
   push:
     branches: [main]
-
 permissions:
   contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-
       - name: Generate Android project
         shell: bash
         run: |
           mkdir -p app/src/main/java/com/iwan/customprint
-          mkdir -p app/src/main
-
           cat > settings.gradle <<'EOF'
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
           rootProject.name = "RPP02N-CustomPrint"
           include ':app'
           EOF
-
           cat > build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application' version '8.7.3' apply false
-          }
+          plugins { id 'com.android.application' version '8.7.3' apply false }
           EOF
-
           cat > app/build.gradle <<'EOF'
-          plugins {
-              id 'com.android.application'
-          }
+          plugins { id 'com.android.application' }
           android {
               namespace 'com.iwan.customprint'
               compileSdk 35
@@ -69,44 +39,39 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 1
-                  versionName '1.0'
+                  versionCode 2
+                  versionName '1.1'
               }
           }
           EOF
-
           cat > app/src/main/AndroidManifest.xml <<'EOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.BLUETOOTH"/>
               <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
               <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-              <application android:theme="@android:style/Theme.Material.Light.NoActionBar"
-                  android:label="RPP02N Custom Print">
-                  <activity android:name=".MainActivity"
-                      android:exported="true">
-                      <intent-filter>
-                          <action android:name="android.intent.action.MAIN"/>
-                          <category android:name="android.intent.category.LAUNCHER"/>
-                      </intent-filter>
+              <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="RPP02N Custom Print">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
                   </activity>
               </application>
           </manifest>
           EOF
-
           cat > app/src/main/java/com/iwan/customprint/MainActivity.java <<'EOF'
           package com.iwan.customprint;
-
           import android.app.*;
           import android.os.*;
           import android.bluetooth.*;
-          import android.content.*;
           import android.content.pm.PackageManager;
           import android.Manifest;
           import android.widget.*;
           import java.util.*;
           import java.io.*;
+          import java.nio.charset.Charset;
+          import java.lang.reflect.Method;
 
           public class MainActivity extends Activity {
+              static final String PRINTER_MAC = "86:67:7A:CF:48:AE";
+              static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
               BluetoothAdapter adapter;
               ArrayList<BluetoothDevice> devices = new ArrayList<>();
               Spinner printers;
@@ -116,116 +81,90 @@ jobs:
               public void onCreate(Bundle b) {
                   super.onCreate(b);
                   adapter = BluetoothAdapter.getDefaultAdapter();
-
                   LinearLayout box = new LinearLayout(this);
-                  box.setOrientation(1);
-                  box.setPadding(24,24,24,24);
-
-                  TextView title = new TextView(this);
-                  title.setText("RPP02N CUSTOM PRINT");
-                  title.setTextSize(24);
-                  box.addView(title);
-
-                  status = new TextView(this);
-                  status.setText("Bluetooth Thermal Printer");
-                  box.addView(status);
-
-                  Button scan = new Button(this);
-                  scan.setText("Muat Printer Paired");
-                  box.addView(scan);
-
-                  printers = new Spinner(this);
-                  box.addView(printers);
-
-                  text = new EditText(this);
-                  text.setHint("Masukkan teks untuk dicetak");
-                  text.setMinLines(6);
-                  box.addView(text);
-
-                  Button print = new Button(this);
-                  print.setText("CETAK");
-                  box.addView(print);
-
+                  box.setOrientation(1); box.setPadding(24,24,24,24);
+                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.1"); title.setTextSize(22); box.addView(title);
+                  status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
+                  Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
+                  printers = new Spinner(this); box.addView(printers);
+                  text = new EditText(this); text.setHint("Tulis teks yang akan dicetak"); text.setMinLines(6); box.addView(text);
+                  Button test = new Button(this); test.setText("TEST PRINT"); box.addView(test);
+                  Button print = new Button(this); print.setText("CETAK TEKS"); box.addView(print);
                   setContentView(box);
-
                   scan.setOnClickListener(v -> loadPrinters());
-                  print.setOnClickListener(v -> printText());
+                  test.setOnClickListener(v -> send("TEST PRINT RPP02N\nBluetooth SPP OK\n\n"));
+                  print.setOnClickListener(v -> send(text.getText().toString() + "\n\n"));
+                  if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
+                      requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 10);
+                  else loadPrinters();
+              }
 
-                  if (Build.VERSION.SDK_INT >= 31 &&
-                      checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
-                      != PackageManager.PERMISSION_GRANTED) {
-                      requestPermissions(
-                          new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 10);
-                  } else loadPrinters();
+              public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+                  super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+                  if (requestCode == 10 && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) loadPrinters();
+                  else status.setText("Izin Bluetooth diperlukan untuk koneksi printer");
               }
 
               void loadPrinters() {
                   try {
                       devices.clear();
-                      if(adapter == null) {
-                          status.setText("Bluetooth tidak tersedia");
-                          return;
-                      }
+                      if (adapter == null) { status.setText("Bluetooth tidak tersedia"); return; }
+                      if (!adapter.isEnabled()) { status.setText("Aktifkan Bluetooth HP terlebih dahulu"); return; }
                       devices.addAll(adapter.getBondedDevices());
-                      ArrayList<String> names = new ArrayList<>();
-                      for(BluetoothDevice d: devices)
-                          names.add(d.getName()+" - "+d.getAddress());
-
-                      printers.setAdapter(new ArrayAdapter<String>(
-                          this, android.R.layout.simple_spinner_dropdown_item, names));
-
-                      status.setText(devices.isEmpty()
-                          ? "Pair printer melalui pengaturan Bluetooth HP"
-                          : "Pilih printer yang akan digunakan");
-                  } catch(Exception e) {
-                      status.setText("Bluetooth: "+e.getMessage());
-                  }
+                      Collections.sort(devices, (a,b) -> Boolean.compare(!PRINTER_MAC.equalsIgnoreCase(a.getAddress()), !PRINTER_MAC.equalsIgnoreCase(b.getAddress())));
+                      ArrayList<String> labels = new ArrayList<>();
+                      for (BluetoothDevice d : devices) labels.add((PRINTER_MAC.equalsIgnoreCase(d.getAddress()) ? "★ PRINTER TARGET - " : "") + d.getName() + " - " + d.getAddress());
+                      printers.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, labels));
+                      if (devices.isEmpty()) status.setText("Belum ada printer paired. Pair melalui pengaturan Bluetooth HP.");
+                      else status.setText("Printer target diprioritaskan: " + PRINTER_MAC);
+                  } catch (Exception e) { status.setText("Bluetooth: " + e.getMessage()); }
               }
 
-              void printText() {
-                  if(devices.isEmpty()) {
-                      status.setText("Belum ada printer paired");
-                      return;
-                  }
-
-                  BluetoothDevice device =
-                      devices.get(printers.getSelectedItemPosition());
-
+              void send(String payload) {
+                  if (devices.isEmpty()) { status.setText("Muat printer paired terlebih dahulu"); return; }
+                  int index = printers.getSelectedItemPosition();
+                  if (index < 0 || index >= devices.size()) { status.setText("Pilih printer"); return; }
+                  BluetoothDevice device = devices.get(index);
+                  status.setText("Menghubungkan ke " + device.getAddress() + " ...");
                   new Thread(() -> {
+                      BluetoothSocket socket = null;
+                      Exception last = null;
                       try {
-                          UUID uuid = UUID.fromString(
-                              "00001101-0000-1000-8000-00805F9B34FB");
-
-                          BluetoothSocket socket =
-                              device.createRfcommSocketToServiceRecord(uuid);
-
-                          socket.connect();
+                          try { socket = device.createRfcommSocketToServiceRecord(SPP); socket.connect(); }
+                          catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                          if (socket == null || !socket.isConnected()) {
+                              try { socket = device.createInsecureRfcommSocketToServiceRecord(SPP); socket.connect(); }
+                              catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                          }
+                          if (socket == null || !socket.isConnected()) {
+                              try {
+                                  Method m = device.getClass().getMethod("createRfcommSocket", int.class);
+                                  socket = (BluetoothSocket)m.invoke(device, 1);
+                                  socket.connect();
+                              } catch (Exception e) { last = e; closeQuietly(socket); socket = null; }
+                          }
+                          if (socket == null || !socket.isConnected()) throw new IOException("Semua metode SPP gagal", last);
                           OutputStream out = socket.getOutputStream();
-
-                          out.write(new byte[]{27,64});
-                          out.write(text.getText().toString()
-                              .getBytes("UTF-8"));
-                          out.write(new byte[]{10,10,10});
+                          out.write(new byte[]{0x1B,0x40});
+                          out.write(payload.getBytes(Charset.forName("IBM850")));
+                          out.write(new byte[]{0x1B,0x64,0x03});
                           out.flush();
-                          socket.close();
-
-                          runOnUiThread(() ->
-                              status.setText("Perintah cetak terkirim!"));
-
-                      } catch(Exception e) {
-                          runOnUiThread(() ->
-                              status.setText("Gagal: "+e.getMessage()));
+                          closeQuietly(socket);
+                          runOnUiThread(() -> status.setText("Data cetak terkirim ke " + device.getAddress()));
+                      } catch (Exception e) {
+                          closeQuietly(socket);
+                          final String msg = e.getClass().getSimpleName() + ": " + String.valueOf(e.getMessage());
+                          runOnUiThread(() -> status.setText("GAGAL: " + msg));
                       }
                   }).start();
               }
+              void closeQuietly(BluetoothSocket s) { if (s != null) try { s.close(); } catch (Exception ignored) {} }
           }
           EOF
-
       - name: Build APK
         run: gradle assembleDebug
-
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK
+          name: RPP02N-CustomPrint-APK-v1.1
           path: app/build/outputs/apk/debug/*.apk
