@@ -83,7 +83,7 @@ jobs:
                   adapter = BluetoothAdapter.getDefaultAdapter();
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(1); box.setPadding(24,24,24,24);
-                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.1"); title.setTextSize(22); box.addView(title);
+                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.2"); title.setTextSize(22); box.addView(title);
                   status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
                   printers = new Spinner(this); box.addView(printers);
@@ -93,7 +93,20 @@ jobs:
                   setContentView(box);
                   scan.setOnClickListener(v -> loadPrinters());
                   test.setOnClickListener(v -> send("TEST PRINT RPP02N\nBluetooth SPP OK\n\n"));
-                  print.setOnClickListener(v -> send(text.getText().toString() + "\n\n"));
+                  print.setOnClickListener(v -> {
+                      String value = text.getText().toString().trim();
+                      if (value.isEmpty()) {
+                          status.setText("Teks masih kosong. Isi teks terlebih dahulu.");
+                          Toast.makeText(this, "Isi teks yang akan dicetak", Toast.LENGTH_SHORT).show();
+                          text.requestFocus();
+                          return;
+                      }
+                      status.setText("Teks diterima, memulai proses cetak...");
+                      ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE))
+                          .hideSoftInputFromWindow(text.getWindowToken(), 0);
+                      text.clearFocus();
+                      send(value + "\\n\\n");
+                  });
                   if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)
                       requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 10);
                   else loadPrinters();
@@ -166,5 +179,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.1
+          name: RPP02N-CustomPrint-APK-v1.2
           path: app/build/outputs/apk/debug/*.apk
