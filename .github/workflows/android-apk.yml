@@ -39,8 +39,8 @@ jobs:
                   applicationId 'com.iwan.customprint'
                   minSdk 23
                   targetSdk 32
-                  versionCode 5
-                  versionName '1.4'
+                  versionCode 6
+                  versionName '1.5'
               }
           }
           EOF
@@ -86,7 +86,7 @@ jobs:
                   adapter = BluetoothAdapter.getDefaultAdapter();
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(1); box.setPadding(24,24,24,24);
-                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.4"); title.setTextSize(22); box.addView(title);
+                  TextView title = new TextView(this); title.setText("RPP02N CUSTOM PRINT v1.5"); title.setTextSize(22); box.addView(title);
                   status = new TextView(this); status.setText("Pilih printer Bluetooth"); box.addView(status);
                   Button scan = new Button(this); scan.setText("MUAT PRINTER PAIRED"); box.addView(scan);
                   printers = new Spinner(this); box.addView(printers);
@@ -220,5 +220,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RPP02N-CustomPrint-APK-v1.4
+          name: RPP02N-CustomPrint-APK-v1.5
           path: app/build/outputs/apk/debug/*.apk
